@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Testes — Núcleo de Dados</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 860px; margin: 0 auto; padding: 16px; background: #111; color: #eee; }
+    h1 { font-size: 1.3rem; }
+    button { padding: 10px 16px; margin: 4px 8px 4px 0; font-size: 0.95rem; cursor: pointer; }
+    #resumo { font-weight: bold; margin: 12px 0; }
+    #resumo.ok { color: #4caf50; }
+    #resumo.falha { color: #f44336; }
+    table { border-collapse: collapse; margin: 12px 0; }
+    td, th { border: 1px solid #444; padding: 4px 10px; text-align: left; font-size: 0.9rem; }
+    #log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.85rem; line-height: 1.5; }
+    .linha-ok { color: #4caf50; }
+    .linha-falha { color: #f44336; }
+    .aviso { color: #ffb74d; font-size: 0.85rem; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>Testes — Núcleo de Dados (Fase 1)</h1>
+  <p class="aviso">Página de suporte ao desenvolvimento, não faz parte do app. Não é linkada em nenhuma tela.</p>
+
+  <button id="botaoTestes">Rodar testes de CRUD</button>
+  <button id="botaoSeed">Gerar seed de 60 dias</button>
+  <button id="botaoLimpar">Apagar tudo (seed e testes)</button>
+
+  <div id="resumo"></div>
+
+  <table id="tabelaContagens"></table>
+
+  <div id="log"></div>
+
+  <script src="js/util.js"></script>
+  <script src="js/schema.js"></script>
+  <script src="js/dados.js"></script>
+  <script src="js/seed.js"></script>
+  <script>
+    const elementoResumo = document.getElementById('resumo');
+    const elementoLog = document.getElementById('log');
+    const elementoTabela = document.getElementById('tabelaContagens');
+
+    function log(mensagem, classe) {
+      const linha = document.createElement('div');
+      if (classe) linha.className = classe;
+      linha.textContent = mensagem;
+      elementoLog.appendChild(linha);
+    }
+
+    async function atualizarContagens() {
+      const contagens = await Dados.contarTudo();
+      const linhas = Object.entries(contagens)
+        .map(([nome, total]) => `<tr><td>${nome}</td><td>${total}</td></tr>`)
+        .join('');
+      elementoTabela.innerHTML = `<tr><th>Armazenamento</th><th>Registros</th></tr>${linhas}`;
+    }
+
+    // --- asserções ---
+
+    function assertVerdadeiro(condicao, mensagem) {
+      if (!condicao) throw new Error(mensagem);
+    }
+
+    function assertIgual(obtido, esperado, mensagem) {
+      if (obtido !== esperado) throw new Error(`${mensagem} (esperado ${JSON.stringify(esperado)}, obtido ${JSON.stringify(obtido)})`);
+    }
+
+    function assertLanca(fn, mensagem) {
+      let lancou = false;
+      try { fn(); } catch (erro) { lancou = true; }
+      if (!lancou) throw new Error(mensagem);
+    }
+
+    async function assertRejeita(promessa, mensagem) {
+      let rejeitou = false;
+      try { await promessa; } catch (erro) { rejeitou = true; }
+      if (!rejeitou) throw new Error(mensagem);
+    }
+
+    // --- suíte de testes ---
+
+    const testes = [];
+    function teste(nome, fn) { testes.push({ nome, fn }); }
+
+    teste('Schema.migrar mantém envelope já na versão atual', () => {
+      const envelope = Schema.criarEnvelopeVazio();
+      const migrado = Schema.migrar(envelope);
+      assertIgual(migrado.versaoSchema, Schema.versaoAtual, 'versaoSchema deve permanecer igual');
+    });
+
+    teste('Schema.migrar assume versão 1 quando ausente', () => {
+      const migrado = Schema.migrar({ pilar: 'saude' });
+      assertIgual(migrado.versaoSchema, 1, 'versaoSchema ausente deve ser tratada como 1');
+    });
+
+    teste('Schema.migrar rejeita versão futura desconhecida', () => {
+      assertLanca(() => Schema.migrar({ versaoSchema: 99 }), 'deveria lançar erro para versão maior que a suportada');
+    });
+
+    teste('Util.gerarId gera ids únicos com prefixo correto', () => {
+      const a = Util.gerarId('pes');
+      const b = Util.gerarId('pes');
+      assertVerdadeiro(a.startsWith('pes_'), 'deve iniciar com pes_');
+      assertVerdadeiro(a !== b, 'dois ids gerados devem ser diferentes');
+      assertIgual(a.length, 'pes_'.length + 26, 'ULID deve ter 26 caracteres');
+    });
+
+    teste('Util.calcularDuracaoMin calcula minutos corretamente', () => {
+      const min = Util.calcularDuracaoMin('2026-08-23T18:00:00-03:00', '2026-08-23T19:07:00-03:00');
+      assertIgual(min, 67, 'duração deve ser 67 minutos');
+    });
+
+    teste('Util.formatarNumero formata com casas decimais em pt-BR', () => {
+      assertIgual(Util.formatarNumero(84.2, 1), '84,2', 'deve formatar com vírgula e 1 casa');
+    });
+
+    teste('Util.formatarDuracao formata horas e minutos', () => {
+      assertIgual(Util.formatarDuracao(67), '1h07min', 'deve formatar como 1h07min');
+      assertIgual(Util.formatarDuracao(45), '45min', 'deve formatar como 45min');
+    });
+
+    teste('Util.agoraISO devolve data/hora com offset de São Paulo', () => {
+      const iso = Util.agoraISO();
+      assertVerdadeiro(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-03:00$/.test(iso), `formato inesperado: ${iso}`);
+    });
+
+    teste('Schema rejeita peso com contexto inválido', () => {
+      const erros = Schema.validar('registrosPeso', { dataHora: Util.agoraISO(), pesoKg: 80, contexto: 'invalido' });
+      assertVerdadeiro(erros.length > 0, 'deveria acusar contexto inválido');
+    });
+
+    teste('Perfil: salvar e obter', async () => {
+      await Dados.salvarPerfil({ alturaCm: 178, nascimento: '1990-01-01', sexo: 'M' });
+      const perfil = await Dados.obterPerfil();
+      assertIgual(perfil.alturaCm, 178, 'alturaCm deve bater com o salvo');
+      await assertRejeita(Dados.salvarPerfil({ alturaCm: -5 }), 'deveria rejeitar alturaCm negativa');
+    });
+
+    teste('Catálogo de marcadores: criar, listar, atualizar, remover', async () => {
+      await Dados.removerMarcadorCatalogo('teste_marcador');
+      await Dados.criarMarcadorCatalogo({
+        codigo: 'teste_marcador',
+        nome: 'Marcador de teste',
+        unidade: 'un',
+        casasDecimais: 0,
+        contextos: ['jejum'],
+        faixaReferencia: { min: null, max: null },
+        direcaoDesejada: 'manter',
+      });
+      try {
+        const lista = await Dados.listarCatalogoMarcadores();
+        assertVerdadeiro(lista.some((m) => m.codigo === 'teste_marcador'), 'marcador de teste deve aparecer na listagem');
+        const atualizado = await Dados.atualizarMarcadorCatalogo('teste_marcador', { unidade: 'mg' });
+        assertIgual(atualizado.unidade, 'mg', 'unidade deve refletir a atualização');
+        await assertRejeita(
+          Dados.criarMarcadorCatalogo({ codigo: 'Código Inválido', nome: 'x', unidade: 'un', casasDecimais: 0, contextos: [], direcaoDesejada: 'manter' }),
+          'deveria rejeitar codigo com formato inválido',
+        );
+      } finally {
+        await Dados.removerMarcadorCatalogo('teste_marcador');
+      }
+      const apagado = await Dados.obterMarcadorCatalogo('teste_marcador');
+      assertVerdadeiro(!apagado, 'marcador de teste deveria ter sido removido do catálogo');
+    });
+
+    teste('Catálogo de exercícios: criar, listar, atualizar, remover', async () => {
+      await Dados.removerExercicioCatalogo('Exercício de teste');
+      await Dados.criarExercicioCatalogo({ nome: 'Exercício de teste', foco: ['peito'] });
+      try {
+        const lista = await Dados.listarCatalogoExercicios();
+        assertVerdadeiro(lista.some((e) => e.nome === 'Exercício de teste'), 'exercício de teste deve aparecer na listagem');
+        const atualizado = await Dados.atualizarExercicioCatalogo('Exercício de teste', { foco: ['costas'] });
+        assertIgual(atualizado.foco[0], 'costas', 'foco deve refletir a atualização');
+      } finally {
+        await Dados.removerExercicioCatalogo('Exercício de teste');
+      }
+    });
+
+    teste('Peso: criar, obter, listar, atualizar, remover, rejeitar inválido', async () => {
+      const registro = await Dados.criarPeso({
+        dataHora: Util.agoraISO(), pesoKg: 84.2, gorduraPct: 21.4, massaMagraKg: null, contexto: 'jejum', obs: '',
+      });
+      try {
+        assertVerdadeiro(registro.id.startsWith('pes_'), 'id deve iniciar com pes_');
+        const obtido = await Dados.obterPeso(registro.id);
+        assertIgual(obtido.pesoKg, 84.2, 'pesoKg obtido deve bater com o criado');
+        const lista = await Dados.listarPeso();
+        assertVerdadeiro(lista.some((r) => r.id === registro.id), 'registro deve aparecer na listagem');
+        const atualizado = await Dados.atualizarPeso(registro.id, { pesoKg: 83.5 });
+        assertIgual(atualizado.pesoKg, 83.5, 'pesoKg deve refletir a atualização');
+        await assertRejeita(Dados.criarPeso({ dataHora: Util.agoraISO(), pesoKg: -1, contexto: 'jejum' }), 'deveria rejeitar pesoKg negativo');
+      } finally {
+        await Dados.removerPeso(registro.id);
+      }
+      const apagado = await Dados.obterPeso(registro.id);
+      assertVerdadeiro(!apagado, 'registro deveria ter sido removido');
+    });
+
+    teste('Medidas: criar, atualizar, remover, rejeitar objeto vazio', async () => {
+      const registro = await Dados.criarMedidas({ dataHora: Util.agoraISO(), medidas: { cintura: 88.5 }, obs: '' });
+      try {
+        assertVerdadeiro(registro.id.startsWith('med_'), 'id deve iniciar com med_');
+        const atualizado = await Dados.atualizarMedidas(registro.id, { medidas: { cintura: 87.9 } });
+        assertIgual(atualizado.medidas.cintura, 87.9, 'cintura deve refletir a atualização');
+        await assertRejeita(Dados.criarMedidas({ dataHora: Util.agoraISO(), medidas: {} }), 'deveria rejeitar medidas totalmente vazias');
+      } finally {
+        await Dados.removerMedidas(registro.id);
+      }
+    });
+
+    teste('Marcadores (registros): exige catálogo e contexto válido', async () => {
+      await Dados.removerMarcadorCatalogo('teste_marcador_registro');
+      await Dados.criarMarcadorCatalogo({
+        codigo: 'teste_marcador_registro',
+        nome: 'Marcador de teste 2',
+        unidade: 'un',
+        casasDecimais: 0,
+        contextos: ['jejum'],
+        faixaReferencia: { min: null, max: null },
+        direcaoDesejada: 'manter',
+      });
+      let registro;
+      try {
+        await assertRejeita(
+          Dados.criarMarcador({ dataHora: Util.agoraISO(), codigo: 'codigo_inexistente', valor: 1, contexto: 'jejum', origem: 'manual' }),
+          'deveria rejeitar código não cadastrado no catálogo',
+        );
+        await assertRejeita(
+          Dados.criarMarcador({ dataHora: Util.agoraISO(), codigo: 'teste_marcador_registro', valor: 1, contexto: 'tarde', origem: 'manual' }),
+          'deveria rejeitar contexto fora da lista do catálogo',
+        );
+        registro = await Dados.criarMarcador({
+          dataHora: Util.agoraISO(), codigo: 'teste_marcador_registro', valor: 94, contexto: 'jejum', origem: 'aparelho', obs: '',
+        });
+        assertVerdadeiro(registro.id.startsWith('mar_'), 'id deve iniciar com mar_');
+        const lista = await Dados.listarMarcadores('teste_marcador_registro');
+        assertVerdadeiro(lista.length === 1, 'listagem filtrada por código deve trazer só o registro criado');
+        const atualizado = await Dados.atualizarMarcador(registro.id, { valor: 95 });
+        assertIgual(atualizado.valor, 95, 'valor deve refletir a atualização');
+      } finally {
+        if (registro) await Dados.removerMarcador(registro.id);
+        await Dados.removerMarcadorCatalogo('teste_marcador_registro');
+      }
+    });
+
+    teste('Treino: livre e detalhado, calcula duração, rejeita fim antes de inicio', async () => {
+      const inicio = Util.agoraISO();
+      const fim = Util.dataParaISOSaoPaulo(new Date(Date.now() + 67 * 60000));
+      const livre = await Dados.criarTreino({
+        inicio, fim, duracaoMin: Util.calcularDuracaoMin(inicio, fim), tipo: 'forca', descricao: 'Treino livre de teste',
+        sensacao: { energia: 4, dorMuscular: 2, humor: 5, rpe: 8 },
+      });
+      try {
+        assertVerdadeiro(livre.id.startsWith('tre_'), 'id deve iniciar com tre_');
+        assertIgual(livre.duracaoMin, 67, 'duração calculada deve ser 67 minutos');
+        assertVerdadeiro(Array.isArray(livre.exercicios) && livre.exercicios.length === 0, 'treino livre deve ter exercicios vazio');
+      } finally {
+        await Dados.removerTreino(livre.id);
+      }
+
+      const detalhado = await Dados.criarTreino({
+        inicio, fim, tipo: 'forca', foco: ['peito', 'triceps'],
+        exercicios: [{ nome: 'Supino reto', series: [{ reps: 10, cargaKg: 60, rpe: 7 }] }],
+      });
+      try {
+        assertIgual(detalhado.exercicios[0].nome, 'Supino reto', 'exercicio detalhado deve ser salvo');
+      } finally {
+        await Dados.removerTreino(detalhado.id);
+      }
+
+      await assertRejeita(
+        Dados.criarTreino({ inicio, fim: Util.dataParaISOSaoPaulo(new Date(Date.now() - 3600000)), tipo: 'forca' }),
+        'deveria rejeitar fim antes de inicio',
+      );
+    });
+
+    teste('Metas: tipo valor e tipo frequência, rejeita tipo desconhecido', async () => {
+      const meta1 = await Dados.criarMeta({
+        tipo: 'valor', metrica: 'pesoKg', alvo: 79, direcao: 'reduzir', valorInicial: 84.2,
+        inicio: Util.hojeISO(), prazo: '2026-12-20', ativa: true,
+      });
+      try {
+        assertVerdadeiro(meta1.id.startsWith('met_'), 'id deve iniciar com met_');
+      } finally {
+        await Dados.removerMeta(meta1.id);
+      }
+
+      const meta2 = await Dados.criarMeta({
+        tipo: 'frequencia', metrica: 'treinos', filtro: { tipo: 'forca' }, alvo: 4, janela: 'semana',
+        inicio: Util.hojeISO(), prazo: null, ativa: true,
+      });
+      try {
+        const obtida = await Dados.obterMeta(meta2.id);
+        assertIgual(obtida.janela, 'semana', 'janela deve bater com o criado');
+        const atualizada = await Dados.atualizarMeta(meta2.id, { alvo: 5 });
+        assertIgual(atualizada.alvo, 5, 'alvo deve refletir a atualização');
+      } finally {
+        await Dados.removerMeta(meta2.id);
+      }
+
+      await assertRejeita(
+        Dados.criarMeta({ tipo: 'desconhecido', metrica: 'x', alvo: 1, inicio: Util.hojeISO(), ativa: true }),
+        'deveria rejeitar tipo de meta desconhecido',
+      );
+    });
+
+    async function rodarTestes() {
+      elementoLog.innerHTML = '';
+      elementoResumo.className = '';
+      elementoResumo.textContent = 'Rodando...';
+      let passou = 0;
+      for (const t of testes) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await t.fn();
+          passou += 1;
+          log(`[OK] ${t.nome}`, 'linha-ok');
+        } catch (erro) {
+          log(`[FALHOU] ${t.nome} — ${erro.message}`, 'linha-falha');
+        }
+      }
+      const tudoPassou = passou === testes.length;
+      elementoResumo.className = tudoPassou ? 'ok' : 'falha';
+      elementoResumo.textContent = `${passou} de ${testes.length} testes passaram`;
+      await atualizarContagens();
+    }
+
+    document.getElementById('botaoTestes').addEventListener('click', () => {
+      rodarTestes().catch((erro) => log(`Erro inesperado ao rodar os testes: ${erro.message}`, 'linha-falha'));
+    });
+
+    document.getElementById('botaoSeed').addEventListener('click', async () => {
+      elementoLog.innerHTML = '';
+      elementoResumo.className = '';
+      elementoResumo.textContent = 'Gerando seed de 60 dias...';
+      try {
+        await Seed.gerar(60);
+        elementoResumo.className = 'ok';
+        elementoResumo.textContent = 'Seed de 60 dias gerado com sucesso.';
+        await atualizarContagens();
+      } catch (erro) {
+        elementoResumo.className = 'falha';
+        elementoResumo.textContent = `Falha ao gerar seed: ${erro.message}`;
+      }
+    });
+
+    document.getElementById('botaoLimpar').addEventListener('click', async () => {
+      await Dados.limparTudo();
+      elementoLog.innerHTML = '';
+      elementoResumo.className = 'ok';
+      elementoResumo.textContent = 'Todos os dados (seed e testes) foram apagados.';
+      await atualizarContagens();
+    });
+
+    atualizarContagens();
+  </script>
+</body>
+</html>
