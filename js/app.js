@@ -4,9 +4,11 @@ App.ROTA_PADRAO = 'hoje';
 
 App.ITENS_NAV = [
   { rota: 'hoje', rotulo: 'Hoje', icone: '🏠' },
+  { rota: 'treino', rotulo: 'Treino', icone: '🏋️' },
   { rota: 'peso', rotulo: 'Peso', icone: '⚖️' },
   { rota: 'medidas', rotulo: 'Medidas', icone: '📏' },
   { rota: 'marcadores', rotulo: 'Marcadores', icone: '🩺' },
+  { rota: 'metas', rotulo: 'Metas', icone: '🎯' },
 ];
 
 App._telas = null;
@@ -15,9 +17,11 @@ App._obterTelas = function _obterTelas() {
   if (!App._telas) {
     App._telas = {
       hoje: TelaHoje,
+      treino: TelaTreino,
       peso: TelaPeso,
       medidas: TelaMedidas,
       marcadores: TelaMarcadores,
+      metas: TelaMetas,
     };
   }
   return App._telas;

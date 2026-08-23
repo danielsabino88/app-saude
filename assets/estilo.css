@@ -136,7 +136,7 @@ button {
 /* ---------- Grade de ações rápidas ---------- */
 .grade-acoes {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -381,6 +381,204 @@ button {
   text-align: center;
   z-index: 20;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- Cronômetro de treino ---------- */
+.cronometro-display {
+  font-size: 2.4rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0 12px 0;
+}
+
+.cronometro-status {
+  text-align: center;
+  color: var(--cor-texto-fraco);
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+}
+
+/* ---------- Sliders de sensação ---------- */
+.campo-slider {
+  margin-bottom: 14px;
+}
+
+.campo-slider .cabecalho-slider {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--cor-texto-fraco);
+  margin-bottom: 6px;
+}
+
+.campo-slider .cabecalho-slider .valor-slider {
+  color: var(--cor-primaria);
+  font-weight: 600;
+}
+
+.campo-slider input[type="range"] {
+  width: 100%;
+  height: 44px;
+  accent-color: var(--cor-primaria);
+}
+
+/* ---------- Bloco de exercícios detalhados ---------- */
+.cartao-exercicio {
+  background: var(--cor-fundo-elevado-2);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-pequeno);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.cartao-exercicio .campo {
+  margin-bottom: 10px;
+}
+
+.linha-serie {
+  display: grid;
+  grid-template-columns: 20px 1fr 1fr 1fr 32px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.linha-serie .numero-serie {
+  font-size: 0.78rem;
+  color: var(--cor-texto-fraco);
+  text-align: center;
+}
+
+.linha-serie input {
+  min-height: var(--altura-toque);
+  width: 100%;
+  background: var(--cor-fundo-elevado);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-pequeno);
+  color: var(--cor-texto);
+  font-size: 16px;
+  padding: 6px;
+}
+
+.botao-remover-serie {
+  min-height: 36px;
+  min-width: 32px;
+  background: none;
+  border: none;
+  color: var(--cor-perigo);
+  font-size: 1rem;
+}
+
+/* ---------- Metas ---------- */
+.lista-cartoes-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.titulo-secao-metas {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cor-texto-fraco);
+  margin: 18px 0 10px 0;
+}
+
+.cartao-meta {
+  margin-bottom: 0;
+  border-left: 3px solid var(--cor-borda);
+}
+
+#area-metas-hoje .cartao-meta {
+  cursor: pointer;
+}
+
+.cartao-meta.status-positivo {
+  border-left-color: var(--cor-primaria);
+}
+
+.cartao-meta.status-negativo {
+  border-left-color: var(--cor-perigo);
+}
+
+.cartao-meta.status-neutro {
+  border-left-color: var(--cor-aviso);
+}
+
+.cabecalho-cartao-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.cabecalho-cartao-meta h3 {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.cabecalho-cartao-meta .rotulo-progresso {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--cor-primaria);
+  white-space: nowrap;
+}
+
+.barra-progresso {
+  height: 8px;
+  background: var(--cor-fundo-elevado-2);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.barra-progresso-preenchimento {
+  height: 100%;
+  background: var(--cor-primaria);
+  border-radius: 999px;
+}
+
+.linha-principal-meta {
+  font-size: 0.9rem;
+  margin: 0 0 8px 0;
+}
+
+.detalhes-meta {
+  list-style: none;
+  margin: 0 0 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detalhes-meta li {
+  font-size: 0.8rem;
+  color: var(--cor-texto-fraco);
+}
+
+.linha-projecao-meta {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.status-positivo .linha-projecao-meta {
+  color: var(--cor-primaria);
+}
+
+.status-negativo .linha-projecao-meta {
+  color: var(--cor-perigo);
+}
+
+.status-neutro .linha-projecao-meta {
+  color: var(--cor-aviso);
+}
+
+.cartao-meta .linha-botoes {
+  margin-top: 10px;
 }
 
 details.secao-recolhivel > summary {

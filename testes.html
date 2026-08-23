@@ -36,6 +36,7 @@
   <script src="js/util.js"></script>
   <script src="js/schema.js"></script>
   <script src="js/dados.js"></script>
+  <script src="js/motor.js"></script>
   <script src="js/seed.js"></script>
   <script>
     const elementoResumo = document.getElementById('resumo');
@@ -276,6 +277,17 @@
       );
     });
 
+    teste('Cronômetro de treino: salvar, obter e limpar estado', async () => {
+      await Dados.limparCronometroTreino();
+      assertVerdadeiro(!(await Dados.obterCronometroTreino()), 'não deveria haver cronômetro salvo no início');
+      const inicio = Util.agoraISO();
+      await Dados.salvarCronometroTreino({ inicio });
+      const salvo = await Dados.obterCronometroTreino();
+      assertIgual(salvo.inicio, inicio, 'inicio salvo deve bater com o lido de volta');
+      await Dados.limparCronometroTreino();
+      assertVerdadeiro(!(await Dados.obterCronometroTreino()), 'cronômetro deveria estar limpo após limparCronometroTreino');
+    });
+
     teste('Metas: tipo valor e tipo frequência, rejeita tipo desconhecido', async () => {
       const meta1 = await Dados.criarMeta({
         tipo: 'valor', metrica: 'pesoKg', alvo: 79, direcao: 'reduzir', valorInicial: 84.2,
@@ -304,6 +316,82 @@
         Dados.criarMeta({ tipo: 'desconhecido', metrica: 'x', alvo: 1, inicio: Util.hojeISO(), ativa: true }),
         'deveria rejeitar tipo de meta desconhecido',
       );
+    });
+
+    teste('Motor.limitesJanela calcula semana (segunda a domingo) e mês corretamente', () => {
+      const semana = Motor.limitesJanela('semana', '2024-01-03'); // quarta-feira
+      assertIgual(semana.inicio, '2024-01-01', 'início da semana deve ser a segunda-feira anterior');
+      assertIgual(semana.fim, '2024-01-07', 'fim da semana deve ser o domingo seguinte');
+
+      const mesBissexto = Motor.limitesJanela('mes', '2024-02-15');
+      assertIgual(mesBissexto.inicio, '2024-02-01', 'início do mês deve ser dia 1');
+      assertIgual(mesBissexto.fim, '2024-02-29', 'fevereiro de ano bissexto deve ter 29 dias');
+
+      const mesNormal = Motor.limitesJanela('mes', '2025-02-10');
+      assertIgual(mesNormal.fim, '2025-02-28', 'fevereiro de ano não-bissexto deve ter 28 dias');
+    });
+
+    teste('Motor.regressaoLinear encontra inclinação e intercepto de uma reta conhecida', () => {
+      const pontos = [{ x: 0, y: 10 }, { x: 1, y: 8 }, { x: 2, y: 6 }, { x: 3, y: 4 }]; // y = 10 - 2x
+      const r = Motor.regressaoLinear(pontos);
+      assertVerdadeiro(Math.abs(r.inclinacao - (-2)) < 0.0001, `inclinação deveria ser -2, obtido ${r.inclinacao}`);
+      assertVerdadeiro(Math.abs(r.intercepto - 10) < 0.0001, `intercepto deveria ser 10, obtido ${r.intercepto}`);
+      assertVerdadeiro(Motor.regressaoLinear([]) === null, 'lista vazia deve devolver null');
+      assertVerdadeiro(Motor.regressaoLinear([{ x: 0, y: 1 }]) === null, 'um único ponto deve devolver null');
+    });
+
+    teste('Motor.calcularMetaValor: progresso, ritmo e projeção coerentes para peso em queda constante', () => {
+      const hoje = Util.hojeISO();
+      const pontos = [];
+      for (let diasAtras = 28; diasAtras >= 1; diasAtras -= 1) {
+        const dataHora = `${Motor._somarDiasYMD(hoje, -diasAtras)}T06:00:00-03:00`;
+        pontos.push({ dataHora, pesoKg: Util.arredondar(86 - (28 - diasAtras) * 0.1, 2) });
+      }
+      const contexto = { pesos: pontos, medidas: [], marcadores: [], treinos: [] };
+      const meta = {
+        tipo: 'valor', metrica: 'pesoKg', alvo: 79, direcao: 'reduzir', valorInicial: 86,
+        inicio: Motor._somarDiasYMD(hoje, -28), prazo: null, ativa: true,
+      };
+      const progresso = Motor.calcularMetaValor(meta, contexto);
+      assertVerdadeiro(progresso.valorAtual < 86 && progresso.valorAtual > 79, `valorAtual fora do intervalo esperado: ${progresso.valorAtual}`);
+      assertVerdadeiro(progresso.progressoPct > 0 && progresso.progressoPct < 100, `progressoPct fora do intervalo esperado: ${progresso.progressoPct}`);
+      assertVerdadeiro(progresso.ritmoSemanal > 0, `ritmo semanal deveria ser positivo (na direção da meta), obtido ${progresso.ritmoSemanal}`);
+      assertIgual(progresso.statusProjecao, 'convergindo', 'com ritmo constante de queda, a projeção deve convergir');
+      assertVerdadeiro(Util.ehDataISOValida(progresso.projecaoData), 'projecaoData deve ser uma data válida');
+    });
+
+    teste('Motor.calcularMetaValor: reconhece meta de valor já atingida', () => {
+      const contexto = { pesos: [{ dataHora: Util.agoraISO(), pesoKg: 78 }], medidas: [], marcadores: [], treinos: [] };
+      const meta = {
+        tipo: 'valor', metrica: 'pesoKg', alvo: 79, direcao: 'reduzir', valorInicial: 86, inicio: Util.hojeISO(), prazo: null, ativa: true,
+      };
+      const progresso = Motor.calcularMetaValor(meta, contexto);
+      assertIgual(progresso.statusProjecao, 'atingida', 'peso já abaixo do alvo deve contar como atingida');
+      assertVerdadeiro(progresso.progressoPct >= 100, 'progresso deveria ser 100% ou mais');
+    });
+
+    teste('Motor.calcularMetaFrequencia: conta treinos filtrados da janela atual e projeta corretamente', () => {
+      const hoje = Util.hojeISO();
+      const limites = Motor.limitesJanela('semana', hoje);
+      const treinos = [
+        { inicio: `${limites.inicio}T18:00:00-03:00`, tipo: 'forca' },
+        { inicio: `${hoje}T18:00:00-03:00`, tipo: 'forca' },
+        { inicio: `${hoje}T07:00:00-03:00`, tipo: 'cardio' },
+      ];
+      const contexto = { pesos: [], medidas: [], marcadores: [], treinos };
+      const meta = {
+        tipo: 'frequencia', metrica: 'treinos', filtro: { tipo: 'forca' }, alvo: 4, janela: 'semana',
+        inicio: limites.inicio, prazo: null, ativa: true,
+      };
+      const progresso = Motor.calcularMetaFrequencia(meta, contexto);
+      assertIgual(progresso.contagemAtual, 2, 'deve contar só os 2 treinos de força dentro da semana atual (ignorando o cardio)');
+      assertIgual(progresso.limites.inicio, limites.inicio, 'limites da janela devem bater com o calculado diretamente');
+      assertIgual(progresso.progressoPct, 50, 'progresso deveria ser 50% (2 de 4)');
+    });
+
+    teste('Motor.calcularProgressoMeta despacha por tipo e rejeita tipo desconhecido', () => {
+      const contexto = { pesos: [], medidas: [], marcadores: [], treinos: [] };
+      assertLanca(() => Motor.calcularProgressoMeta({ tipo: 'invalido' }, contexto), 'deveria lançar erro para tipo de meta desconhecido');
     });
 
     async function rodarTestes() {

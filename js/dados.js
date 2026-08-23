@@ -1,10 +1,11 @@
 const Dados = {};
 
 Dados.NOME_BANCO = 'app_saude';
-Dados.VERSAO_BANCO = 1;
+Dados.VERSAO_BANCO = 2;
 Dados.NOMES_ARMAZENAMENTOS = [
   'perfil', 'catalogoMarcadores', 'catalogoExercicios',
   'registrosPeso', 'registrosMedidas', 'registrosMarcadores', 'treinos', 'metas',
+  'cronometroTreino',
 ];
 
 Dados._db = null;
@@ -36,6 +37,9 @@ Dados._criarArmazenamentos = function _criarArmazenamentos(db) {
   }
   if (!db.objectStoreNames.contains('metas')) {
     db.createObjectStore('metas', { keyPath: 'id' }).createIndex('ativa', 'ativa');
+  }
+  if (!db.objectStoreNames.contains('cronometroTreino')) {
+    db.createObjectStore('cronometroTreino');
   }
 };
 
@@ -291,6 +295,23 @@ Dados.obterMeta = (id) => Dados._obterRegistro('metas', id);
 Dados.listarMetas = async () => Dados._listarRegistros('metas');
 Dados.atualizarMeta = (id, alteracoes) => Dados._atualizarRegistro('metas', id, alteracoes);
 Dados.removerMeta = (id) => Dados._removerRegistro('metas', id);
+
+// --- Cronômetro de treino em andamento (estado efêmero, sobrevive a segundo plano/reload; não faz parte do envelope exportável) ---
+
+Dados.salvarCronometroTreino = async function salvarCronometroTreino(dados) {
+  const armazenamento = await Dados._armazenamento('cronometroTreino', 'readwrite');
+  await Dados._promessa(armazenamento.put(dados, 'atual'));
+};
+
+Dados.obterCronometroTreino = async function obterCronometroTreino() {
+  const armazenamento = await Dados._armazenamento('cronometroTreino', 'readonly');
+  return Dados._promessa(armazenamento.get('atual'));
+};
+
+Dados.limparCronometroTreino = async function limparCronometroTreino() {
+  const armazenamento = await Dados._armazenamento('cronometroTreino', 'readwrite');
+  await Dados._promessa(armazenamento.delete('atual'));
+};
 
 // --- Utilidades gerais ---
 

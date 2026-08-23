@@ -56,17 +56,19 @@ TelaHoje._iconePorTipo = {
   peso: '⚖️',
   medidas: '📏',
   marcador: '🩺',
+  treino: '🏋️',
 };
 
 TelaHoje._montarResumoDoDia = async function _montarResumoDoDia() {
   const hoje = Util.hojeISO();
   const dentroDoDia = (iso) => Util.diaEmSaoPaulo(new Date(iso)) === hoje;
 
-  const [pesos, medidas, marcadores, catalogo] = await Promise.all([
+  const [pesos, medidas, marcadores, catalogo, treinos] = await Promise.all([
     Dados.listarPeso(),
     Dados.listarMedidas(),
     Dados.listarMarcadores(),
     Dados.listarCatalogoMarcadores(),
+    Dados.listarTreinos(),
   ]);
 
   const itens = [];
@@ -96,6 +98,15 @@ TelaHoje._montarResumoDoDia = async function _montarResumoDoDia() {
       tipo: 'marcador',
       dataHora: r.dataHora,
       texto: `${nome}: ${Util.formatarNumero(r.valor, doCatalogo ? doCatalogo.casasDecimais : 1)} ${unidade}`,
+    });
+  });
+
+  const rotulosTipoTreino = { forca: 'Força', cardio: 'Cardio', mobilidade: 'Mobilidade', esporte: 'Esporte', outro: 'Treino' };
+  treinos.filter((t) => dentroDoDia(t.inicio)).forEach((t) => {
+    itens.push({
+      tipo: 'treino',
+      dataHora: t.inicio,
+      texto: `${rotulosTipoTreino[t.tipo] || t.tipo}: ${Util.formatarDuracao(t.duracaoMin)}`,
     });
   });
 
@@ -180,7 +191,9 @@ TelaHoje.renderizar = async function renderizar(container) {
       <h1>Hoje</h1>
       <p class="subtitulo">${dataFormatada}</p>
     </div>
+    <div id="area-metas-hoje"></div>
     <div class="grade-acoes">
+      ${TelaHoje._construirBotaoAcao('🏋️', 'Treino', 'treino')}
       ${TelaHoje._construirBotaoAcao('⚖️', 'Peso', 'peso')}
       ${TelaHoje._construirBotaoAcao('📏', 'Medidas', 'medidas')}
       ${TelaHoje._construirBotaoAcao('🩺', 'Marcador', 'marcadores')}
@@ -203,5 +216,8 @@ TelaHoje.renderizar = async function renderizar(container) {
     });
   });
 
-  await TelaHoje._renderizarResumo(container);
+  await Promise.all([
+    TelaHoje._renderizarResumo(container),
+    TelaMetas.renderizarResumoEmHoje(container),
+  ]);
 };
