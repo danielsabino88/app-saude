@@ -9,6 +9,7 @@ App.ITENS_NAV = [
   { rota: 'medidas', rotulo: 'Medidas', icone: '📏' },
   { rota: 'marcadores', rotulo: 'Marcadores', icone: '🩺' },
   { rota: 'metas', rotulo: 'Metas', icone: '🎯' },
+  { rota: 'relatorio', rotulo: 'Relatório', icone: '📊' },
 ];
 
 App._telas = null;
@@ -22,6 +23,7 @@ App._obterTelas = function _obterTelas() {
       medidas: TelaMedidas,
       marcadores: TelaMarcadores,
       metas: TelaMetas,
+      relatorio: TelaRelatorio,
     };
   }
   return App._telas;

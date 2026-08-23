@@ -590,3 +590,107 @@ details.secao-recolhivel > summary {
   display: flex;
   align-items: center;
 }
+
+/* ---------- Relatório ---------- */
+.grafico-container {
+  position: relative;
+  width: 100%;
+  height: 220px;
+}
+
+.titulo-categoria-insight {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cor-texto-fraco);
+  margin: 18px 0 8px 0;
+}
+
+.titulo-categoria-insight:first-child {
+  margin-top: 0;
+}
+
+.cartao-insight {
+  border-left: 3px solid var(--cor-primaria);
+}
+
+.cartao-insight h3 {
+  font-size: 0.9rem;
+  margin: 0 0 6px 0;
+}
+
+.cartao-insight p {
+  font-size: 0.85rem;
+  margin: 0 0 6px 0;
+}
+
+.amostra-insight {
+  font-size: 0.72rem;
+  color: var(--cor-texto-fraco);
+}
+
+.selecao-series {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.chip-serie {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--cor-borda);
+  background: var(--cor-fundo-elevado-2);
+  color: var(--cor-texto-fraco);
+  font-size: 0.78rem;
+  min-height: 32px;
+}
+
+.chip-serie.selecionado {
+  border-color: var(--cor-primaria);
+  color: var(--cor-texto);
+}
+
+.chip-serie input {
+  accent-color: var(--cor-primaria);
+}
+
+.select-relatorio {
+  width: 100%;
+  min-height: var(--altura-toque);
+  background: var(--cor-fundo-elevado-2);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-pequeno);
+  color: var(--cor-texto);
+  font-size: 16px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.grade-heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 12px);
+  gap: 3px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.celula-heatmap {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--cor-fundo-elevado-2);
+}
+
+.celula-heatmap.fora-periodo {
+  background: transparent;
+}
+
+.celula-heatmap.nivel-1 { background: rgba(34, 211, 164, 0.25); }
+.celula-heatmap.nivel-2 { background: rgba(34, 211, 164, 0.5); }
+.celula-heatmap.nivel-3 { background: rgba(34, 211, 164, 0.75); }
+.celula-heatmap.nivel-4 { background: rgba(34, 211, 164, 1); }

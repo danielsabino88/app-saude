@@ -252,3 +252,173 @@ Motor.calcularProgressoMeta = function calcularProgressoMeta(meta, contexto) {
   if (meta.tipo === 'frequencia') return Motor.calcularMetaFrequencia(meta, contexto);
   throw new Error(`Tipo de meta desconhecido: ${meta.tipo}`);
 };
+
+// =====================================================================
+// Métricas derivadas (seção 3.1 do plano)
+// =====================================================================
+
+// --- Filtro por período, usado pela tela Relatório ---
+
+Motor.PERIODOS = {
+  '30d': 30, '90d': 90, '6m': 182, '1a': 365, tudo: null,
+};
+
+Motor.filtrarPorPeriodo = function filtrarPorPeriodo(lista, campoData, periodo) {
+  const dias = Motor.PERIODOS[periodo];
+  if (dias === null || dias === undefined) return lista;
+  const limiteYMD = Motor._somarDiasYMD(Util.hojeISO(), -dias);
+  return lista.filter((item) => Util.diaEmSaoPaulo(new Date(item[campoData])) >= limiteYMD);
+};
+
+// --- Peso e composição ---
+
+// Média das últimas N leituras (não dias de calendário) — o peso diário é ruído, a média é o sinal.
+Motor.mediaMovel = function mediaMovel(pontos, janela = 7) {
+  const ordenados = pontos.slice().sort((a, b) => a.dataHora.localeCompare(b.dataHora));
+  return ordenados.map((p, i) => {
+    const fatia = ordenados.slice(Math.max(0, i - janela + 1), i + 1);
+    const media = fatia.reduce((soma, x) => soma + x.valor, 0) / fatia.length;
+    return { dataHora: p.dataHora, valor: Util.arredondar(media, 2) };
+  });
+};
+
+// Inclinação da regressão linear das últimas N semanas, em unidade/semana.
+Motor.taxaSemanal = function taxaSemanal(pontos, semanas = 4) {
+  if (pontos.length < 2) return null;
+  const ordenados = pontos.slice().sort((a, b) => a.dataHora.localeCompare(b.dataHora));
+  const limiteYMD = Motor._somarDiasYMD(Util.hojeISO(), -7 * semanas);
+  const recentes = ordenados.filter((p) => Util.diaEmSaoPaulo(new Date(p.dataHora)) >= limiteYMD);
+  const base = recentes.length >= 2 ? recentes : ordenados;
+  if (base.length < 2) return null;
+  const regressao = Motor.regressaoLinear(base.map((p) => ({ x: Motor._paraDias(p.dataHora), y: p.valor })));
+  return regressao ? Util.arredondar(regressao.inclinacao * 7, 3) : null;
+};
+
+// Projeção de data de chegada no alvo, dado o ritmo semanal atual. null quando o ritmo diverge do alvo.
+Motor.etaMeta = function etaMeta(valorAtual, alvo, taxaSemanalValor) {
+  if (!Util.ehNumero(taxaSemanalValor) || taxaSemanalValor === 0) return null;
+  const faltante = alvo - valorAtual;
+  if (Math.sign(faltante) !== Math.sign(taxaSemanalValor)) return null;
+  const diasNecessarios = Math.max(1, Math.round((faltante / taxaSemanalValor) * 7));
+  return { diasNecessarios, dataYMD: Motor._somarDiasYMD(Util.hojeISO(), diasNecessarios) };
+};
+
+Motor.imc = function imc(pesoKg, alturaCm) {
+  if (!Util.ehNumero(pesoKg) || !Util.ehNumero(alturaCm) || alturaCm <= 0) return null;
+  const alturaM = alturaCm / 100;
+  return Util.arredondar(pesoKg / (alturaM * alturaM), 1);
+};
+
+Motor.variacaoAcumulada = function variacaoAcumulada(pontos) {
+  if (pontos.length < 2) return null;
+  const ordenados = pontos.slice().sort((a, b) => a.dataHora.localeCompare(b.dataHora));
+  return Util.arredondar(ordenados[ordenados.length - 1].valor - ordenados[0].valor, 2);
+};
+
+// --- Medidas corporais ---
+
+Motor.rcest = function rcest(cinturaCm, alturaCm) {
+  if (!Util.ehNumero(cinturaCm) || !Util.ehNumero(alturaCm) || alturaCm <= 0) return null;
+  return Util.arredondar(cinturaCm / alturaCm, 2);
+};
+
+Motor.rcq = function rcq(cinturaCm, quadrilCm) {
+  if (!Util.ehNumero(cinturaCm) || !Util.ehNumero(quadrilCm) || quadrilCm <= 0) return null;
+  return Util.arredondar(cinturaCm / quadrilCm, 2);
+};
+
+Motor.perimetroSomado = function perimetroSomado(medidas) {
+  if (!medidas) return null;
+  const valores = Object.values(medidas).filter((v) => Util.ehNumero(v));
+  if (valores.length === 0) return null;
+  return Util.arredondar(valores.reduce((soma, v) => soma + v, 0), 1);
+};
+
+Motor.PARES_BILATERAIS = [
+  ['bracoRelaxadoD', 'bracoRelaxadoE'],
+  ['bracoContraidoD', 'bracoContraidoE'],
+  ['antebracoD', 'antebracoE'],
+  ['coxaD', 'coxaE'],
+  ['panturrilhaD', 'panturrilhaE'],
+];
+
+Motor.assimetriaBilateral = function assimetriaBilateral(medidas) {
+  const resultado = {};
+  if (!medidas) return resultado;
+  Motor.PARES_BILATERAIS.forEach(([d, e]) => {
+    if (Util.ehNumero(medidas[d]) && Util.ehNumero(medidas[e])) {
+      resultado[d.replace(/D$/, '')] = Util.arredondar(Math.abs(medidas[d] - medidas[e]), 1);
+    }
+  });
+  return resultado;
+};
+
+// Variação de um campo de medida nos últimos N dias (contra o registro mais próximo antes desse limite).
+Motor.deltaSegmento = function deltaSegmento(registrosMedidas, campo, dias) {
+  const comCampo = registrosMedidas
+    .filter((r) => Util.ehNumero(r.medidas && r.medidas[campo]))
+    .slice()
+    .sort((a, b) => a.dataHora.localeCompare(b.dataHora));
+  if (comCampo.length === 0) return null;
+  const ultimo = comCampo[comCampo.length - 1];
+  const limiteYMD = Motor._somarDiasYMD(Util.diaEmSaoPaulo(new Date(ultimo.dataHora)), -dias);
+  const referencia = comCampo.filter((r) => Util.diaEmSaoPaulo(new Date(r.dataHora)) <= limiteYMD).pop();
+  if (!referencia) return null;
+  return Util.arredondar(ultimo.medidas[campo] - referencia.medidas[campo], 1);
+};
+
+// --- Treino ---
+
+Motor.frequenciaSemanal = function frequenciaSemanal(treinos, semanas = 4) {
+  const hojeYMD = Util.hojeISO();
+  let total = 0;
+  for (let i = 0; i < semanas; i += 1) {
+    const refYMD = Motor._somarDiasYMD(hojeYMD, -7 * i);
+    const limites = Motor.limitesJanela('semana', refYMD);
+    total += treinos.filter((t) => Motor._dentroDaJanela(t.inicio, limites)).length;
+  }
+  return Util.arredondar(total / semanas, 2);
+};
+
+// Tonelagem: Σ (reps × carga), só disponível para treinos com bloco de exercícios detalhado.
+Motor.volumeTreino = function volumeTreino(treino) {
+  if (!treino.exercicios || treino.exercicios.length === 0) return null;
+  let total = 0;
+  treino.exercicios.forEach((ex) => {
+    ex.series.forEach((s) => {
+      if (Util.ehNumero(s.reps) && Util.ehNumero(s.cargaKg)) total += s.reps * s.cargaKg;
+    });
+  });
+  return Util.arredondar(total, 1);
+};
+
+// Tonelagem agregada por grupo muscular (foco), distribuindo o volume do treino entre os focos declarados.
+Motor.volumePorGrupo = function volumePorGrupo(treinos) {
+  const resultado = {};
+  treinos.forEach((t) => {
+    const volume = Motor.volumeTreino(t);
+    if (volume === null || !t.foco || t.foco.length === 0) return;
+    const porGrupo = volume / t.foco.length;
+    t.foco.forEach((f) => { resultado[f] = Util.arredondar((resultado[f] || 0) + porGrupo, 1); });
+  });
+  return resultado;
+};
+
+// Epley: carga × (1 + reps ÷ 30) — compara séries de faixas de repetição diferentes.
+Motor.rm1Estimado = function rm1Estimado(cargaKg, reps) {
+  if (!Util.ehNumero(cargaKg) || !Util.ehNumero(reps) || reps <= 0) return null;
+  return Util.arredondar(cargaKg * (1 + reps / 30), 1);
+};
+
+Motor.densidade = function densidade(treino) {
+  const volume = Motor.volumeTreino(treino);
+  if (volume === null || !Util.ehNumero(treino.duracaoMin) || treino.duracaoMin <= 0) return null;
+  return Util.arredondar(volume / treino.duracaoMin, 1);
+};
+
+Motor.tempoTotalSemanal = function tempoTotalSemanal(treinos, semanaRefYMD) {
+  const limites = Motor.limitesJanela('semana', semanaRefYMD || Util.hojeISO());
+  return treinos
+    .filter((t) => Motor._dentroDaJanela(t.inicio, limites))
+    .reduce((soma, t) => soma + (t.duracaoMin || 0), 0);
+};
