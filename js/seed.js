@@ -90,6 +90,7 @@ async function semearMedidas(dias) {
 }
 
 async function semearMarcadores(dias) {
+  let indice = 0;
   for (let diasAtras = dias - 1; diasAtras >= 0; diasAtras -= 5) {
     // eslint-disable-next-line no-await-in-loop
     await Dados.criarMarcador({
@@ -100,7 +101,7 @@ async function semearMarcadores(dias) {
       origem: 'aparelho',
       obs: '',
     });
-    if (diasAtras % 10 === 0) {
+    if (indice % 2 === 0) {
       // eslint-disable-next-line no-await-in-loop
       await Dados.criarMarcador({
         dataHora: dataHoraHaDias(diasAtras, 7, 30),
@@ -111,6 +112,7 @@ async function semearMarcadores(dias) {
         obs: '',
       });
     }
+    indice += 1;
   }
 }
 
