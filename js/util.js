@@ -124,6 +124,26 @@ Util.formatarDuracao = function formatarDuracao(minutos) {
   return `${horas}h${String(min).padStart(2, '0')}min`;
 };
 
+// Conversão entre ISO com offset (armazenado) e o valor de <input type="datetime-local">
+// (sem offset, sempre interpretado como hora de parede em São Paulo).
+Util.isoParaCampoDataHora = function isoParaCampoDataHora(iso) {
+  if (!iso) return '';
+  const p = partesEmFuso(new Date(iso), Util.FUSO_SAO_PAULO);
+  return `${p.ano}-${p.mes}-${p.dia}T${p.hora}:${p.minuto}`;
+};
+
+Util.agoraParaCampoDataHora = function agoraParaCampoDataHora() {
+  return Util.isoParaCampoDataHora(Util.agoraISO());
+};
+
+Util.campoDataHoraParaISO = function campoDataHoraParaISO(valorCampo) {
+  if (!valorCampo) return null;
+  const [dataParte, horaParte] = valorCampo.split('T');
+  if (!dataParte || !horaParte) return null;
+  const offset = offsetEmFuso(new Date(), Util.FUSO_SAO_PAULO);
+  return `${dataParte}T${horaParte}:00${offset}`;
+};
+
 Util.gerarUlid = function gerarUlid() {
   const agora = Date.now();
   let tempo = '';
