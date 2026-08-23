@@ -10,6 +10,7 @@ App.ITENS_NAV = [
   { rota: 'marcadores', rotulo: 'Marcadores', icone: '🩺' },
   { rota: 'metas', rotulo: 'Metas', icone: '🎯' },
   { rota: 'relatorio', rotulo: 'Relatório', icone: '📊' },
+  { rota: 'config', rotulo: 'Config', icone: '⚙️' },
 ];
 
 App._telas = null;
@@ -24,6 +25,7 @@ App._obterTelas = function _obterTelas() {
       marcadores: TelaMarcadores,
       metas: TelaMetas,
       relatorio: TelaRelatorio,
+      config: TelaConfig,
     };
   }
   return App._telas;
