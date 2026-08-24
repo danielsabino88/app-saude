@@ -18,6 +18,7 @@ const ARQUIVOS_PARA_CACHE = [
   'js/sync.js',
   'js/motor.js',
   'js/insights.js',
+  'js/cockpit.js',
   'js/graficos.js',
   'js/telas/hoje.js',
   'js/telas/peso.js',

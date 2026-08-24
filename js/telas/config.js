@@ -94,6 +94,17 @@ TelaConfig._construirCartaoSync = function _construirCartaoSync() {
     </div>
 
     <div class="cartao">
+      <h2>Exportar para o cockpit</h2>
+      <p style="color: var(--cor-texto-fraco); font-size: 0.85rem; margin-bottom: 10px;">
+        Gera o <code>saude.json</code> no formato do Contrato de Dados dos Quatro Pilares — salve na pasta
+        <code>Quatro Pilares/dados/</code> para o cockpit ler.
+      </p>
+      <div class="linha-botoes">
+        <button type="button" class="botao botao-secundario" id="botao-exportar-cockpit">Exportar saude.json</button>
+      </div>
+    </div>
+
+    <div class="cartao">
       <h2>Exportar CSV</h2>
       <p style="color: var(--cor-texto-fraco); font-size: 0.85rem; margin-bottom: 10px;">
         Uma planilha por tipo de registro, pronta para abrir no Excel/Sheets.
@@ -149,6 +160,14 @@ TelaConfig._ligarCartaoSync = function _ligarCartaoSync(container) {
   container.querySelector('#botao-exportar-backup').addEventListener('click', async () => {
     try {
       await Sync.exportarBackupJSON();
+    } catch (erro) {
+      window.alert(erro.message);
+    }
+  });
+
+  container.querySelector('#botao-exportar-cockpit').addEventListener('click', async () => {
+    try {
+      await Cockpit.exportarJSON();
     } catch (erro) {
       window.alert(erro.message);
     }

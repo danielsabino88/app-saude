@@ -55,6 +55,19 @@ Motor._paraDias = function _paraDias(dataHoraISO) {
   return new Date(dataHoraISO).getTime() / Motor.MS_DIA;
 };
 
+// Semana ISO 8601 (AAAA-Wnn): semana 1 é a que contém a primeira quinta-feira do ano.
+Motor.semanaISO = function semanaISO(dataYMD) {
+  const data = new Date(`${dataYMD}T12:00:00Z`);
+  const deslocamento = (data.getUTCDay() + 6) % 7; // 0=segunda..6=domingo
+  data.setUTCDate(data.getUTCDate() - deslocamento + 3); // quinta-feira da semana de dataYMD
+  const anoISO = data.getUTCFullYear();
+  const primeiraQuinta = new Date(Date.UTC(anoISO, 0, 4));
+  const deslocamentoPrimeira = (primeiraQuinta.getUTCDay() + 6) % 7;
+  primeiraQuinta.setUTCDate(primeiraQuinta.getUTCDate() - deslocamentoPrimeira + 3);
+  const numeroSemana = 1 + Math.round((data.getTime() - primeiraQuinta.getTime()) / (7 * Motor.MS_DIA));
+  return `${anoISO}-W${String(numeroSemana).padStart(2, '0')}`;
+};
+
 Motor.limitesJanela = function limitesJanela(janela, dataRefYMD) {
   if (janela === 'semana') {
     const diaSemana = Motor._diaSemanaISO(dataRefYMD);

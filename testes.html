@@ -38,6 +38,8 @@
   <script src="js/dados.js"></script>
   <script src="js/sync.js"></script>
   <script src="js/motor.js"></script>
+  <script src="js/insights.js"></script>
+  <script src="js/cockpit.js"></script>
   <script src="js/seed.js"></script>
   <script>
     const elementoResumo = document.getElementById('resumo');
@@ -401,6 +403,143 @@
     teste('Motor.calcularProgressoMeta despacha por tipo e rejeita tipo desconhecido', () => {
       const contexto = { pesos: [], medidas: [], marcadores: [], treinos: [] };
       assertLanca(() => Motor.calcularProgressoMeta({ tipo: 'invalido' }, contexto), 'deveria lançar erro para tipo de meta desconhecido');
+    });
+
+    // ---- Fase 8: exportação para o cockpit (formato do CONTRATO-DE-DADOS.md) ----
+
+    teste('Motor.semanaISO calcula semana ISO 8601 corretamente, incluindo virada de ano', () => {
+      assertIgual(Motor.semanaISO('2024-01-03'), '2024-W01', 'quarta na 1ª semana de 2024 (contém 4/jan)');
+      assertIgual(Motor.semanaISO('2021-01-01'), '2020-W53', 'sexta 1/jan/2021 pertence à última semana de 2020 (ISO)');
+      assertIgual(Motor.semanaISO('2024-12-31'), '2025-W01', 'terça 31/dez/2024 já pertence à 1ª semana ISO de 2025');
+    });
+
+    teste('Cockpit._atingimento e _calcularScore aplicam a fórmula do contrato (teto 1.0, média)', () => {
+      const maiorMelhorParcial = Cockpit._atingimento({ valor: 4, meta: 5, direcao: 'maior_melhor' });
+      assertVerdadeiro(Math.abs(maiorMelhorParcial - 0.8) < 0.0001, `esperado 0.8, obtido ${maiorMelhorParcial}`);
+
+      const maiorMelhorEstourado = Cockpit._atingimento({ valor: 8, meta: 5, direcao: 'maior_melhor' });
+      assertIgual(maiorMelhorEstourado, 1, 'atingimento não pode passar de 1.0 (não existe 130%)');
+
+      const menorMelhor = Cockpit._atingimento({ valor: 85, meta: 80, direcao: 'menor_melhor' });
+      assertVerdadeiro(Math.abs(menorMelhor - (80 / 85)) < 0.0001, `esperado ${80 / 85}, obtido ${menorMelhor}`);
+
+      const score = Cockpit._calcularScore([
+        { valor: 4, meta: 5, direcao: 'maior_melhor' }, // 0.8
+        { valor: 80, meta: 80, direcao: 'menor_melhor' }, // 1.0
+      ]);
+      assertIgual(score, 90, 'média de 0.8 e 1.0 × 100 = 90');
+
+      assertIgual(Cockpit._calcularScore([]), null, 'sem indicadores, score deve ser null (não zero)');
+    });
+
+    teste('Cockpit._indicadorDeMeta: meta de frequência conta treinos da janela; meta de valor lê o último ponto até a data', () => {
+      const hoje = Util.hojeISO();
+      const limites = Motor.limitesJanela('semana', hoje);
+      const contexto = {
+        pesos: [
+          { dataHora: `${Motor._somarDiasYMD(hoje, -10)}T07:00:00-03:00`, pesoKg: 84 },
+          { dataHora: `${hoje}T07:00:00-03:00`, pesoKg: 80 },
+        ],
+        medidas: [], marcadores: [], catalogoMarcadores: [],
+        treinos: [
+          { inicio: `${limites.inicio}T18:00:00-03:00`, tipo: 'forca' },
+          { inicio: `${hoje}T18:00:00-03:00`, tipo: 'forca' },
+        ],
+      };
+      const metaFreq = { id: 'met_1', tipo: 'frequencia', filtro: null, alvo: 4, janela: 'semana' };
+      const indFreq = Cockpit._indicadorDeMeta(metaFreq, contexto, hoje);
+      assertIgual(indFreq.valor, 2, 'deve contar os 2 treinos da semana atual');
+      assertIgual(indFreq.meta, 4, 'meta deve bater com o alvo da meta');
+      assertIgual(indFreq.direcao, 'maior_melhor', 'meta de frequência é sempre maior_melhor');
+
+      const metaPeso = { id: 'met_2', tipo: 'valor', metrica: 'pesoKg', alvo: 78, direcao: 'reduzir', valorInicial: 90 };
+      const indPeso = Cockpit._indicadorDeMeta(metaPeso, contexto, hoje);
+      assertIgual(indPeso.valor, 80, 'deve pegar o peso mais recente até a data de referência');
+      assertIgual(indPeso.nome, 'Peso', 'metrica pesoKg deve virar o rótulo "Peso"');
+      assertIgual(indPeso.direcao, 'menor_melhor', 'direcao reduzir deve virar menor_melhor no contrato');
+
+      const indPesoNoPassado = Cockpit._indicadorDeMeta(metaPeso, contexto, Motor._somarDiasYMD(hoje, -5));
+      assertIgual(indPesoNoPassado.valor, 84, 'na data de referência passada, só o ponto anterior a ela deve contar');
+    });
+
+    teste('Cockpit._rotuloMeta usa nome/unidade do catálogo para código de marcador desconhecido', () => {
+      const contexto = { catalogoMarcadores: [{ codigo: 'pressao_sistolica', nome: 'Pressão sistólica', unidade: 'mmHg' }] };
+      const rotuloConhecido = Cockpit._rotuloMeta({ tipo: 'valor', metrica: 'pressao_sistolica' }, contexto);
+      assertIgual(rotuloConhecido.nome, 'Pressão sistólica', 'deve buscar o nome no catálogo de marcadores');
+      assertIgual(rotuloConhecido.unidade, 'mmHg', 'deve buscar a unidade no catálogo de marcadores');
+
+      const rotuloDesconhecido = Cockpit._rotuloMeta({ tipo: 'valor', metrica: 'algo_inexistente' }, contexto);
+      assertIgual(rotuloDesconhecido.nome, 'algo_inexistente', 'sem catálogo nem mapeamento fixo, cai no código bruto da métrica');
+    });
+
+    teste('Cockpit._construirMarcos: status pendente/vencido/concluído a partir do prazo e do progresso', () => {
+      const hoje = Util.hojeISO();
+      const contexto = { pesos: [{ dataHora: Util.agoraISO(), pesoKg: 75 }], medidas: [], marcadores: [], catalogoMarcadores: [], treinos: [] };
+      const metas = [
+        { id: 'met_a', tipo: 'valor', metrica: 'pesoKg', alvo: 78, direcao: 'reduzir', valorInicial: 90, prazo: Motor._somarDiasYMD(hoje, 30) },
+        { id: 'met_b', tipo: 'valor', metrica: 'pesoKg', alvo: 78, direcao: 'reduzir', valorInicial: 90, prazo: Motor._somarDiasYMD(hoje, -5) },
+        { id: 'met_c', tipo: 'frequencia', filtro: null, alvo: 1, janela: 'semana', prazo: Motor._somarDiasYMD(hoje, 200) },
+      ];
+      const marcos = Cockpit._construirMarcos(metas, contexto, hoje);
+      assertIgual(marcos.length, 2, 'só entram metas com prazo dentro de 90 dias (a de 200 dias fica de fora)');
+      assertIgual(marcos.find((m) => m.data === Motor._somarDiasYMD(hoje, 30)).status, 'concluido', 'peso já abaixo do alvo (75<78) deve estar concluído mesmo com prazo futuro');
+      assertIgual(marcos.find((m) => m.data === Motor._somarDiasYMD(hoje, -5)).status, 'concluido', 'meta atingida tem prioridade sobre prazo vencido');
+    });
+
+    teste('Cockpit._calcularStreak: conta dias consecutivos até hoje, ou até ontem se hoje ainda não tem registro', () => {
+      const hoje = Util.hojeISO();
+      const dias = new Set([
+        hoje,
+        Motor._somarDiasYMD(hoje, -1),
+        Motor._somarDiasYMD(hoje, -2),
+        Motor._somarDiasYMD(hoje, -4), // furo em -3: quebra a sequência
+      ]);
+      assertIgual(Cockpit._calcularStreak(dias, hoje), 3, 'sequência de hoje, ontem e anteontem = 3');
+
+      const semHoje = new Set([Motor._somarDiasYMD(hoje, -1), Motor._somarDiasYMD(hoje, -2)]);
+      assertIgual(Cockpit._calcularStreak(semHoje, hoje), 2, 'sem registro hoje, conta a partir de ontem');
+
+      assertIgual(Cockpit._calcularStreak(new Set(), hoje), 0, 'sem nenhum registro, streak é 0');
+    });
+
+    teste('Cockpit._calcularScoreSemanal só fecha semanas em que a meta já existia', () => {
+      const hoje = Util.hojeISO();
+      const contexto = { pesos: [], medidas: [], marcadores: [], catalogoMarcadores: [], treinos: [] };
+      const metaAntiga = { id: 'met_x', tipo: 'frequencia', filtro: null, alvo: 3, janela: 'semana', inicio: '2000-01-01' };
+      const historicoCompleto = Cockpit._calcularScoreSemanal([metaAntiga], contexto, hoje, Cockpit.SEMANAS_HISTORICO);
+      assertIgual(historicoCompleto.length, Cockpit.SEMANAS_HISTORICO, 'meta criada há muito tempo deve preencher as 8 semanas');
+
+      const metaFutura = { id: 'met_y', tipo: 'frequencia', filtro: null, alvo: 3, janela: 'semana', inicio: Motor._somarDiasYMD(hoje, 3650) };
+      const historicoVazio = Cockpit._calcularScoreSemanal([metaFutura], contexto, hoje, Cockpit.SEMANAS_HISTORICO);
+      assertIgual(historicoVazio.length, 0, 'meta com início no futuro não deve aparecer em nenhuma semana fechada');
+    });
+
+    teste('Cockpit.montarResumo gera o envelope no formato do contrato (integração com IndexedDB)', async () => {
+      const meta = await Dados.criarMeta({
+        tipo: 'frequencia', metrica: 'treinos', filtro: null, alvo: 3, janela: 'semana',
+        inicio: Motor._somarDiasYMD(Util.hojeISO(), -30), prazo: null, ativa: true,
+      });
+      try {
+        const resumo = await Cockpit.montarResumo();
+        assertIgual(resumo.pilar, 'saude', 'campo pilar deve ser "saude"');
+        assertIgual(resumo.rotulo, 'Saúde', 'campo rotulo deve ser "Saúde"');
+        assertVerdadeiro(Util.ehDataISOValida(`${resumo.atualizado_em}T00:00:00-03:00`), 'atualizado_em deve ser uma data válida');
+        assertVerdadeiro(Array.isArray(resumo.indicadores), 'indicadores deve ser uma lista');
+        assertVerdadeiro(resumo.indicadores.some((i) => i.id === meta.id), 'a meta ativa criada deve aparecer como indicador');
+        assertVerdadeiro(Array.isArray(resumo.score_semanal), 'score_semanal deve ser uma lista');
+        // a meta só existe há 30 dias, então semanas mais antigas (antes dela existir) não entram —
+        // por isso o tamanho varia com o dia da semana atual, sem bater exatamente em 8.
+        assertVerdadeiro(resumo.score_semanal.length >= 1 && resumo.score_semanal.length <= Cockpit.SEMANAS_HISTORICO, `score_semanal deveria ter entre 1 e ${Cockpit.SEMANAS_HISTORICO} semanas, obtido ${resumo.score_semanal.length}`);
+        resumo.score_semanal.forEach((s) => {
+          assertVerdadeiro(/^\d{4}-W\d{2}$/.test(s.semana), `semana em formato inesperado: ${s.semana}`);
+          assertVerdadeiro(s.score >= 0 && s.score <= 100, `score da semana fora de 0-100: ${s.score}`);
+        });
+        assertVerdadeiro(Array.isArray(resumo.marcos), 'marcos deve ser uma lista');
+        assertVerdadeiro(Array.isArray(resumo.registros), 'registros deve ser uma lista');
+        assertVerdadeiro(Number.isInteger(resumo.streak_dias), 'streak_dias deve ser inteiro');
+      } finally {
+        await Dados.removerMeta(meta.id);
+      }
     });
 
     // ---- Fase 7: sincronização (merge puro, sem rede nem login) ----
