@@ -84,9 +84,25 @@ App.mostrarConfirmacao = function mostrarConfirmacao(mensagem) {
   setTimeout(() => aviso.remove(), 1800);
 };
 
+// Sync automático ao abrir e ao fechar (Fase 7). 'visibilitychange' com o app ficando
+// oculto é o sinal mais confiável de "fechando" no Safari/PWA do iPhone — 'beforeunload'
+// não dispara de forma confiável lá. Nunca bloqueia a interface nem lança erro (ver
+// Sync.sincronizarSilencioso): o app funciona 100% offline independente do resultado.
+App._ligarSyncAutomatico = function _ligarSyncAutomatico() {
+  if (App._syncAutomaticoLigado) return;
+  App._syncAutomaticoLigado = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') Sync.sincronizarSilencioso('fechar');
+  });
+  window.addEventListener('pagehide', () => Sync.sincronizarSilencioso('fechar'));
+};
+
 App.iniciar = async function iniciar() {
   await Dados.abrir();
+  await Sync.tratarRetornoOAuth();
   App._renderizarNav();
   window.addEventListener('hashchange', App._rotear);
   await App._rotear();
+  App._ligarSyncAutomatico();
+  Sync.sincronizarSilencioso('abrir');
 };

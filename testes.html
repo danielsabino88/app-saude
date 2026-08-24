@@ -20,7 +20,7 @@
   </style>
 </head>
 <body>
-  <h1>Testes — Núcleo de Dados (Fase 1)</h1>
+  <h1>Testes — Núcleo de Dados</h1>
   <p class="aviso">Página de suporte ao desenvolvimento, não faz parte do app. Não é linkada em nenhuma tela.</p>
 
   <button id="botaoTestes">Rodar testes de CRUD</button>
@@ -36,6 +36,7 @@
   <script src="js/util.js"></script>
   <script src="js/schema.js"></script>
   <script src="js/dados.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/motor.js"></script>
   <script src="js/seed.js"></script>
   <script>
@@ -162,8 +163,12 @@
       } finally {
         await Dados.removerMarcadorCatalogo('teste_marcador');
       }
+      // remoção é suave (tombstone, ver Fase 7): some da listagem, mas o registro
+      // continua existindo internamente com excluidoEm preenchido, para o sync propagar.
+      const listaFinal = await Dados.listarCatalogoMarcadores();
+      assertVerdadeiro(!listaFinal.some((m) => m.codigo === 'teste_marcador'), 'marcador de teste não deve mais aparecer na listagem');
       const apagado = await Dados.obterMarcadorCatalogo('teste_marcador');
-      assertVerdadeiro(!apagado, 'marcador de teste deveria ter sido removido do catálogo');
+      assertVerdadeiro(!!(apagado && apagado.excluidoEm), 'marcador de teste deve continuar existindo como tombstone (excluidoEm preenchido)');
     });
 
     teste('Catálogo de exercícios: criar, listar, atualizar, remover', async () => {
@@ -195,8 +200,12 @@
       } finally {
         await Dados.removerPeso(registro.id);
       }
+      // remoção é suave (tombstone, ver Fase 7): some da listagem, mas o registro
+      // continua existindo internamente com excluidoEm preenchido, para o sync propagar.
+      const listaFinal = await Dados.listarPeso();
+      assertVerdadeiro(!listaFinal.some((r) => r.id === registro.id), 'registro removido não deve mais aparecer na listagem');
       const apagado = await Dados.obterPeso(registro.id);
-      assertVerdadeiro(!apagado, 'registro deveria ter sido removido');
+      assertVerdadeiro(!!(apagado && apagado.excluidoEm), 'registro removido deve continuar existindo como tombstone (excluidoEm preenchido)');
     });
 
     teste('Medidas: criar, atualizar, remover, rejeitar objeto vazio', async () => {
@@ -392,6 +401,126 @@
     teste('Motor.calcularProgressoMeta despacha por tipo e rejeita tipo desconhecido', () => {
       const contexto = { pesos: [], medidas: [], marcadores: [], treinos: [] };
       assertLanca(() => Motor.calcularProgressoMeta({ tipo: 'invalido' }, contexto), 'deveria lançar erro para tipo de meta desconhecido');
+    });
+
+    // ---- Fase 7: sincronização (merge puro, sem rede nem login) ----
+
+    teste('Sync.unirListas: sem conflito, mantém os dois registros', () => {
+      const local = [{ id: 'a', atualizadoEm: '2026-01-01T00:00:00-03:00', valor: 1 }];
+      const remoto = [{ id: 'b', atualizadoEm: '2026-01-01T00:00:00-03:00', valor: 2 }];
+      const unido = Sync.unirListas('id', local, remoto);
+      assertIgual(unido.length, 2, 'registros de ids diferentes devem coexistir');
+    });
+
+    teste('Sync.unirListas: no mesmo id, o atualizadoEm mais recente vence (dos dois lados)', () => {
+      const local = [{ id: 'a', atualizadoEm: '2026-01-01T10:00:00-03:00', valor: 'local-mais-novo' }];
+      const remoto = [{ id: 'a', atualizadoEm: '2026-01-01T08:00:00-03:00', valor: 'remoto-mais-velho' }];
+      const unido1 = Sync.unirListas('id', local, remoto);
+      assertIgual(unido1[0].valor, 'local-mais-novo', 'local mais recente deve vencer sobre remoto mais antigo');
+
+      const local2 = [{ id: 'a', atualizadoEm: '2026-01-01T08:00:00-03:00', valor: 'local-mais-velho' }];
+      const remoto2 = [{ id: 'a', atualizadoEm: '2026-01-01T10:00:00-03:00', valor: 'remoto-mais-novo' }];
+      const unido2 = Sync.unirListas('id', local2, remoto2);
+      assertIgual(unido2[0].valor, 'remoto-mais-novo', 'remoto mais recente deve vencer sobre local mais antigo');
+    });
+
+    teste('Sync.unirEnvelopes: entidades diferentes fundem em conjunto, sem perder nenhuma', () => {
+      const local = Schema.criarEnvelopeVazio();
+      local.registrosPeso = [{ id: 'pes_1', atualizadoEm: '2026-01-01T08:00:00-03:00', pesoKg: 80 }];
+      const remoto = Schema.criarEnvelopeVazio();
+      remoto.treinos = [{ id: 'tre_1', atualizadoEm: '2026-01-01T08:00:00-03:00', tipo: 'forca' }];
+      const unido = Sync.unirEnvelopes(local, remoto);
+      assertIgual(unido.registrosPeso.length, 1, 'peso do lado local deve sobreviver');
+      assertIgual(unido.treinos.length, 1, 'treino do lado remoto deve sobreviver');
+      assertIgual(unido.versaoSchema, Schema.versaoAtual, 'envelope resultante deve ter a versão de schema atual');
+    });
+
+    teste('CONFLITO — editar o mesmo dia no iPhone e no Mac offline: nada se perde no merge', () => {
+      // Estado de partida: os dois aparelhos sincronizaram uma vez e têm o mesmo registro de peso do dia.
+      const registroComum = { id: 'pes_dia', atualizadoEm: '2026-08-24T06:00:00-03:00', dataHora: '2026-08-24T06:00:00-03:00', pesoKg: 84.0, contexto: 'jejum' };
+
+      // iPhone, offline: edita o peso do dia (às 7h) e registra uma medida nova.
+      const envelopeIphone = Schema.criarEnvelopeVazio();
+      envelopeIphone.dispositivoOrigem = 'iphone';
+      envelopeIphone.registrosPeso = [{ ...registroComum, pesoKg: 83.6, atualizadoEm: '2026-08-24T07:00:00-03:00' }];
+      envelopeIphone.registrosMedidas = [{ id: 'med_iphone', atualizadoEm: '2026-08-24T07:05:00-03:00', dataHora: '2026-08-24T07:05:00-03:00', medidas: { cintura: 88 } }];
+
+      // Mac, offline ao mesmo tempo: edita o MESMO registro de peso (às 9h, depois do iPhone)
+      // e registra um treino novo — sem saber nada do que aconteceu no iPhone.
+      const envelopeMac = Schema.criarEnvelopeVazio();
+      envelopeMac.dispositivoOrigem = 'mac';
+      envelopeMac.registrosPeso = [{ ...registroComum, pesoKg: 83.8, atualizadoEm: '2026-08-24T09:00:00-03:00' }];
+      envelopeMac.treinos = [{ id: 'tre_mac', atualizadoEm: '2026-08-24T09:10:00-03:00', inicio: '2026-08-24T09:10:00-03:00', tipo: 'forca' }];
+
+      // Simula o fluxo real: iPhone sincroniza primeiro (sobe pro Drive), Mac sincroniza depois
+      // (baixa o que o iPhone subiu e funde com o que já tinha).
+      const apósIphone = envelopeIphone; // "Drive" depois do 1º sync
+      const final = Sync.unirEnvelopes(envelopeMac, apósIphone);
+
+      assertIgual(final.registrosPeso.length, 1, 'não deve duplicar o registro de peso do mesmo dia');
+      assertIgual(final.registrosPeso[0].pesoKg, 83.8, 'edição mais recente (Mac, 9h) deve vencer a mais antiga (iPhone, 7h)');
+      assertVerdadeiro(final.registrosMedidas.some((m) => m.id === 'med_iphone'), 'medida criada no iPhone não pode se perder');
+      assertVerdadeiro(final.treinos.some((t) => t.id === 'tre_mac'), 'treino criado no Mac não pode se perder');
+    });
+
+    teste('Exclusão suave: removerPeso marca tombstone, listarPeso esconde, exportarEnvelope com incluirExcluidos revela', async () => {
+      const registro = await Dados.criarPeso({ dataHora: Util.agoraISO(), pesoKg: 70, contexto: 'jejum' });
+      await Dados.removerPeso(registro.id);
+      try {
+        const lista = await Dados.listarPeso();
+        assertVerdadeiro(!lista.some((r) => r.id === registro.id), 'registro apagado não deve aparecer na listagem normal');
+
+        const envelopeSemExcluidos = await Dados.exportarEnvelope({ incluirExcluidos: false });
+        assertVerdadeiro(!envelopeSemExcluidos.registrosPeso.some((r) => r.id === registro.id), 'backup manual não deve incluir tombstones');
+
+        const envelopeComExcluidos = await Dados.exportarEnvelope({ incluirExcluidos: true });
+        const tombstone = envelopeComExcluidos.registrosPeso.find((r) => r.id === registro.id);
+        assertVerdadeiro(!!(tombstone && tombstone.excluidoEm), 'exportação para sync deve trazer o tombstone com excluidoEm preenchido');
+      } finally {
+        // limpeza definitiva do registro de teste, direto no armazenamento (bypassa o tombstone)
+        const arm = await Dados._armazenamento('registrosPeso', 'readwrite');
+        await Dados._promessa(arm.delete(registro.id));
+      }
+    });
+
+    teste('Exclusão em outro aparelho propaga: merge com tombstone remoto mais novo apaga localmente', async () => {
+      const registro = await Dados.criarPeso({ dataHora: Util.agoraISO(), pesoKg: 71, contexto: 'jejum' });
+      try {
+        const envelopeLocal = await Dados.exportarEnvelope({ incluirExcluidos: true });
+        // "outro aparelho" apagou esse mesmo registro depois da última edição local
+        const tombstoneRemoto = { ...registro, excluidoEm: Util.agoraISO(), atualizadoEm: Util.dataParaISOSaoPaulo(new Date(Date.now() + 60000)) };
+        const envelopeRemoto = Schema.criarEnvelopeVazio();
+        envelopeRemoto.registrosPeso = [tombstoneRemoto];
+
+        const mesclado = Sync.unirEnvelopes(envelopeLocal, envelopeRemoto);
+        await Dados.aplicarEnvelope(mesclado);
+
+        const lista = await Dados.listarPeso();
+        assertVerdadeiro(!lista.some((r) => r.id === registro.id), 'depois de aplicar o envelope mesclado, o registro apagado em outro aparelho some daqui também');
+      } finally {
+        const arm = await Dados._armazenamento('registrosPeso', 'readwrite');
+        await Dados._promessa(arm.delete(registro.id));
+      }
+    });
+
+    teste('Recriar catálogo de marcador com o mesmo código depois de apagado não trava (tombstone vira put)', async () => {
+      await Dados.removerMarcadorCatalogo('teste_recriar');
+      await Dados.criarMarcadorCatalogo({
+        codigo: 'teste_recriar', nome: 'Primeira versão', unidade: 'un', casasDecimais: 0,
+        contextos: ['jejum'], faixaReferencia: { min: null, max: null }, direcaoDesejada: 'manter',
+      });
+      await Dados.removerMarcadorCatalogo('teste_recriar');
+      try {
+        await Dados.criarMarcadorCatalogo({
+          codigo: 'teste_recriar', nome: 'Segunda versão', unidade: 'un', casasDecimais: 0,
+          contextos: ['jejum'], faixaReferencia: { min: null, max: null }, direcaoDesejada: 'manter',
+        });
+        const lista = await Dados.listarCatalogoMarcadores();
+        const encontrado = lista.find((m) => m.codigo === 'teste_recriar');
+        assertVerdadeiro(!!encontrado && encontrado.nome === 'Segunda versão', 'recriar com o mesmo código deve substituir o tombstone, não travar');
+      } finally {
+        await Dados.removerMarcadorCatalogo('teste_recriar');
+      }
     });
 
     async function rodarTestes() {

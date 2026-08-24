@@ -694,3 +694,35 @@ details.secao-recolhivel > summary {
 .celula-heatmap.nivel-2 { background: rgba(34, 211, 164, 0.5); }
 .celula-heatmap.nivel-3 { background: rgba(34, 211, 164, 0.75); }
 .celula-heatmap.nivel-4 { background: rgba(34, 211, 164, 1); }
+
+/* ---------- Sincronização (Fase 7) ---------- */
+.linha-status-sync {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  margin-bottom: 12px;
+}
+
+.ponto-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.ponto-status.status-ok { background: var(--cor-primaria); }
+.ponto-status.status-pendente { background: var(--cor-aviso); }
+.ponto-status.status-erro { background: var(--cor-perigo); }
+.ponto-status.status-neutro { background: var(--cor-texto-fraco); }
+
+.linha-botoes-csv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.linha-botoes-csv .botao {
+  width: auto;
+  flex: 1 1 calc(50% - 4px);
+}
